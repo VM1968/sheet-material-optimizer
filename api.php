@@ -23,12 +23,13 @@ class SheetOptimizer {
         $patterns = [];
         $remaining_details = [];
         
-        // Развернуть детали с учетом количества
+        // Развернуть детали с учетом количества и ротации
         foreach ($this->details as $detail) {
             for ($i = 0; $i < $detail['quantity']; $i++) {
                 $remaining_details[] = [
                     'length' => $detail['length'],
                     'width' => $detail['width'],
+                    'rotation' => $detail['rotation'] ?? 'free',
                     'original_index' => count($remaining_details)
                 ];
             }
@@ -46,6 +47,9 @@ class SheetOptimizer {
             $pattern = $this->createPattern($remaining_details);
             if (!empty($pattern['details'])) {
                 $patterns[] = $pattern;
+            } else {
+                // Если не удалось разместить ни одну деталь, выходим (ошибка)
+                break;
             }
         }
         
@@ -61,7 +65,7 @@ class SheetOptimizer {
             $used_area += $pattern['used_area'];
         }
         
-        $material_used = ($used_area / $total_sheet_area) * 100;
+        $material_used = $total_sheet_area > 0 ? ($used_area / $total_sheet_area) * 100 : 0;
         $waste = 100 - $material_used;
         
         return [
@@ -84,79 +88,169 @@ class SheetOptimizer {
         $pattern = [
             'details' => [],
             'used_area' => 0,
-            'available_width' => $this->sheet_width,
-            'available_length' => $this->sheet_length
         ];
         
-        $current_y = 0;
+        $used_spaces = []; // Отслеживание использованного пространства
         
-        while (!empty($remaining_details) && $current_y < $this->sheet_width) {
+        while (!empty($remaining_details)) {
             $detail = array_shift($remaining_details);
-            $current_x = 0;
-            $current_row_height = 0;
+            $placed = false;
             
-            // Пытаемся разместить детали в текущей строке
-            while (!empty($remaining_details) || $detail) {
-                $length = $detail ? $detail['length'] : null;
-                $width = $detail ? $detail['width'] : null;
+            // Пытаемся найти место для детали
+            $position = $this->findBestPosition($pattern, $detail, $used_spaces);
+            
+            if ($position !== null) {
+                // Деталь размещена успешно
+                $pattern['details'][] = [
+                    'x' => $position['x'],
+                    'y' => $position['y'],
+                    'length' => $position['length'],
+                    'width' => $position['width']
+                ];
                 
-                if (!$length) break;
-                
-                // Проверяем оба варианта ориентации
-                $fits_normal = ($length + $this->margin <= $this->sheet_length - $current_x) &&
-                               ($width + $this->margin <= $this->sheet_width - $current_y);
-                
-                $fits_rotated = ($width + $this->margin <= $this->sheet_length - $current_x) &&
-                                ($length + $this->margin <= $this->sheet_width - $current_y);
-                
-                if ($fits_normal) {
-                    // Разместить в нормальной ориентации
-                    $pattern['details'][] = [
-                        'x' => $current_x,
-                        'y' => $current_y,
-                        'length' => $length,
-                        'width' => $width
-                    ];
-                    
-                    $pattern['used_area'] += $length * $width;
-                    $current_x += $length + $this->margin;
-                    $current_row_height = max($current_row_height, $width);
-                    
-                    $detail = array_shift($remaining_details);
-                } elseif ($fits_rotated && $width + $this->margin <= $this->sheet_length - $current_x) {
-                    // Разместить в повернутой ориентации
-                    $pattern['details'][] = [
-                        'x' => $current_x,
-                        'y' => $current_y,
-                        'length' => $width,
-                        'width' => $length
-                    ];
-                    
-                    $pattern['used_area'] += $length * $width;
-                    $current_x += $width + $this->margin;
-                    $current_row_height = max($current_row_height, $length);
-                    
-                    $detail = array_shift($remaining_details);
-                } else {
-                    // Не подходит, переместить в начало конца очереди
-                    if ($detail) {
-                        array_push($remaining_details, $detail);
-                    }
-                    break;
-                }
+                $pattern['used_area'] += $position['length'] * $position['width'];
+                $used_spaces[] = $position;
+                $placed = true;
             }
             
-            $current_y += $current_row_height + $this->margin;
-            
-            if (!$detail && !empty($remaining_details)) {
-                $detail = reset($remaining_details);
-            } elseif ($detail && empty($remaining_details)) {
-                array_push($remaining_details, $detail);
+            if (!$placed) {
+                // Вернуть деталь в очередь - не подходит
+                array_unshift($remaining_details, $detail);
                 break;
             }
         }
         
         return $pattern;
+    }
+    
+    /**
+     * Найти лучшую позицию для детали на листе
+     */
+    private function findBestPosition($pattern, $detail, $used_spaces) {
+        $best_position = null;
+        $best_waste = PHP_INT_MAX;
+        
+        // Пытаемся разместить деталь в нормальной ориентации
+        $normal_positions = $this->getAvailablePositions(
+            $detail['length'], 
+            $detail['width'], 
+            $pattern, 
+            $used_spaces
+        );
+        
+        foreach ($normal_positions as $pos) {
+            if ($this->canPlaceDetail($pos['x'], $pos['y'], $detail['length'], $detail['width'], $used_spaces)) {
+                return [
+                    'x' => $pos['x'],
+                    'y' => $pos['y'],
+                    'length' => $detail['length'],
+                    'width' => $detail['width']
+                ];
+            }
+        }
+        
+        // Если деталь имеет свободную ротацию, пытаемся развернуть
+        if ($detail['rotation'] === 'free') {
+            $rotated_positions = $this->getAvailablePositions(
+                $detail['width'], 
+                $detail['length'], 
+                $pattern, 
+                $used_spaces
+            );
+            
+            foreach ($rotated_positions as $pos) {
+                if ($this->canPlaceDetail($pos['x'], $pos['y'], $detail['width'], $detail['length'], $used_spaces)) {
+                    return [
+                        'x' => $pos['x'],
+                        'y' => $pos['y'],
+                        'length' => $detail['width'],
+                        'width' => $detail['length']
+                    ];
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Получить доступные позиции для размещения детали
+     */
+    private function getAvailablePositions($length, $width, $pattern, $used_spaces) {
+        $positions = [];
+        
+        // Стартовые позиции: левый верхний угол и вдоль краев существующих деталей
+        $positions[] = ['x' => 0, 'y' => 0];
+        
+        // Позиции вдоль краев уже размещенных деталей
+        foreach ($pattern['details'] as $placed_detail) {
+            // Справа от детали
+            $x = $placed_detail['x'] + $placed_detail['length'] + $this->margin;
+            $y = $placed_detail['y'];
+            if ($x + $length + $this->margin <= $this->sheet_length && 
+                $y + $width + $this->margin <= $this->sheet_width) {
+                $positions[] = ['x' => $x, 'y' => $y];
+            }
+            
+            // Снизу от детали
+            $x = $placed_detail['x'];
+            $y = $placed_detail['y'] + $placed_detail['width'] + $this->margin;
+            if ($x + $length + $this->margin <= $this->sheet_length && 
+                $y + $width + $this->margin <= $this->sheet_width) {
+                $positions[] = ['x' => $x, 'y' => $y];
+            }
+        }
+        
+        // Также проверяем сетку позиций
+        for ($x = 0; $x + $length + $this->margin <= $this->sheet_length; $x += 50) {
+            for ($y = 0; $y + $width + $this->margin <= $this->sheet_width; $y += 50) {
+                $positions[] = ['x' => $x, 'y' => $y];
+            }
+        }
+        
+        return $positions;
+    }
+    
+    /**
+     * Проверить, может ли деталь быть размещена в указанной позиции
+     */
+    private function canPlaceDetail($x, $y, $length, $width, $used_spaces) {
+        // Проверить границы листа
+        if ($x + $length + $this->margin > $this->sheet_length) {
+            return false;
+        }
+        if ($y + $width + $this->margin > $this->sheet_width) {
+            return false;
+        }
+        
+        // Проверить пересечение с существующими деталями
+        foreach ($used_spaces as $space) {
+            if ($this->isOverlapping(
+                $x, $y, $length, $width,
+                $space['x'], $space['y'], $space['length'], $space['width']
+            )) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Проверить пересечение двух прямоугольников
+     */
+    private function isOverlapping($x1, $y1, $w1, $h1, $x2, $y2, $w2, $h2) {
+        $x1_end = $x1 + $w1 + $this->margin;
+        $y1_end = $y1 + $h1 + $this->margin;
+        $x2_end = $x2 + $w2 + $this->margin;
+        $y2_end = $y2 + $h2 + $this->margin;
+        
+        return !(
+            $x1_end <= $x2 ||
+            $x2_end <= $x1 ||
+            $y1_end <= $y2 ||
+            $y2_end <= $y1
+        );
     }
 }
 
@@ -171,6 +265,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $material_cost = floatval($_POST['material_cost']);
             $margin = intval($_POST['margin']);
             $details = json_decode($_POST['details'], true);
+            
+            if (!$details) {
+                throw new Exception('Некорректный формат данных деталей');
+            }
             
             $optimizer = new SheetOptimizer($sheet_length, $sheet_width, $material_cost, $margin, $details);
             $result = $optimizer->optimize();

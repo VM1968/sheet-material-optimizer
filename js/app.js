@@ -1,8 +1,9 @@
 // Глобальные переменные
 let sheets = [];
 let details = [];
-let optimizationResult = null;
+let optimizationResults = null;
 let currentSheetIndex = 0;
+let editingDetailId = null;
 
 // Стандартные размеры листов
 const SHEET_PRESETS = [
@@ -15,10 +16,17 @@ const SHEET_PRESETS = [
     { name: 'Кастрюля 1500×1500', length: 1500, width: 1500, cost: 500 }
 ];
 
+// Стратегии оптимизации
+const STRATEGIES = [
+    { id: 'area', name: 'По площади', description: 'Сортировка по площади детали (больше сначала)' },
+    { id: 'long_side', name: 'По длинной стороне', description: 'Сортировка по самой длинной стороне детали' },
+    { id: 'best_fit', name: 'Лучший размещение', description: 'Выбор позиции с минимальными отходами' }
+];
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('addSheetBtn').addEventListener('click', addSheet);
-    document.getElementById('addDetailBtn').addEventListener('click', addDetail);
+    document.getElementById('addDetailBtn').addEventListener('click', addOrUpdateDetail);
     document.getElementById('optimizeBtn').addEventListener('click', optimizeLayout);
     document.getElementById('printBtn').addEventListener('click', printLayout);
     document.getElementById('presetsBtn').addEventListener('click', loadPresetsModal);
@@ -138,7 +146,7 @@ function applyPreset(length, width, cost) {
 
 // ===== УПРАВЛЕНИЕ ДЕТАЛЯМИ =====
 
-function addDetail() {
+function addOrUpdateDetail() {
     const length = parseInt(document.getElementById('detailLength').value);
     const width = parseInt(document.getElementById('detailWidth').value);
     const quantity = parseInt(document.getElementById('detailQuantity').value);
@@ -149,15 +157,29 @@ function addDetail() {
         return;
     }
     
-    const detail = {
-        id: Date.now(),
-        length: length,
-        width: width,
-        quantity: quantity,
-        rotation: rotation
-    };
+    if (editingDetailId !== null) {
+        // Обновить существующую деталь
+        const detail = details.find(d => d.id === editingDetailId);
+        if (detail) {
+            detail.length = length;
+            detail.width = width;
+            detail.quantity = quantity;
+            detail.rotation = rotation;
+        }
+        editingDetailId = null;
+        document.getElementById('addDetailBtn').innerHTML = 'Добавить деталь';
+    } else {
+        // Добавить новую деталь
+        const detail = {
+            id: Date.now(),
+            length: length,
+            width: width,
+            quantity: quantity,
+            rotation: rotation
+        };
+        details.push(detail);
+    }
     
-    details.push(detail);
     updateDetailsTable();
     
     // Очистить форму
@@ -168,6 +190,25 @@ function addDetail() {
 function removeDetail(id) {
     details = details.filter(d => d.id !== id);
     updateDetailsTable();
+    if (editingDetailId === id) {
+        editingDetailId = null;
+        document.getElementById('addDetailBtn').innerHTML = 'Добавить деталь';
+        document.getElementById('detailForm').reset();
+        document.getElementById('detailRotation').value = 'free';
+    }
+}
+
+function editDetail(id) {
+    const detail = details.find(d => d.id === id);
+    if (detail) {
+        document.getElementById('detailLength').value = detail.length;
+        document.getElementById('detailWidth').value = detail.width;
+        document.getElementById('detailQuantity').value = detail.quantity;
+        document.getElementById('detailRotation').value = detail.rotation;
+        editingDetailId = id;
+        document.getElementById('addDetailBtn').innerHTML = 'Сохранить изменения';
+        document.getElementById('detailLength').focus();
+    }
 }
 
 function updateDetailsTable() {
@@ -176,7 +217,7 @@ function updateDetailsTable() {
     
     details.forEach(detail => {
         const row = document.createElement('tr');
-        const area = detail.length * detail.width*detail.quantity;
+        const area = detail.length * detail.width * detail.quantity;
         const rotationLabel = detail.rotation === 'free' ? 'Свобод.' : 'Фиксир.';
         row.innerHTML = `
             <td>${detail.length}</td>
@@ -185,6 +226,9 @@ function updateDetailsTable() {
             <td><span class="badge ${detail.rotation === 'free' ? 'bg-info' : 'bg-warning'}">${rotationLabel}</span></td>
             <td>${area}</td>
             <td>
+                <button class="btn btn-sm btn-primary" onclick="editDetail(${detail.id})" title="Редактировать">
+                    ✎
+                </button>
                 <button class="btn btn-sm btn-danger" onclick="removeDetail(${detail.id})">
                     ✕
                 </button>
@@ -207,145 +251,223 @@ function optimizeLayout() {
         return;
     }
     
-    const currentSheet = sheets[currentSheetIndex];
-    
-    const formData = new FormData();
-    formData.append('action', 'optimize');
-    formData.append('sheet_length', currentSheet.length);
-    formData.append('sheet_width', currentSheet.width);
-    formData.append('material_cost', currentSheet.cost);
-    formData.append('margin', currentSheet.margin);
-    formData.append('details', JSON.stringify(details));
-    
     document.getElementById('optimizeBtn').disabled = true;
     document.getElementById('optimizeBtn').innerHTML = '⏳ Обработка...';
     
-    fetch('api.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        document.getElementById('optimizeBtn').disabled = false;
-        document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
+    // Отправить запросы для всех стратегий
+    const sheetsData = sheets.map(sheet => ({
+        length: sheet.length,
+        width: sheet.width,
+        cost: sheet.cost
+    }));
+    
+    const margin = sheets[0].margin;
+    let completedRequests = 0;
+    let allResults = {};
+    
+    STRATEGIES.forEach(strategy => {
+        const formData = new FormData();
+        formData.append('action', 'optimize');
+        formData.append('sheets', JSON.stringify(sheetsData));
+        formData.append('margin', margin);
+        formData.append('details', JSON.stringify(details));
+        formData.append('strategy', strategy.id);
         
-        if (data.success) {
-            optimizationResult = data;
-            displayResults(data);
-            document.getElementById('printBtn').style.display = 'block';
-        } else {
-            alert('Ошибка оптимизации: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        document.getElementById('optimizeBtn').disabled = false;
-        document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
-        alert('Ошибка соединения с сервером');
+        fetch('api.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            completedRequests++;
+            
+            if (data.success) {
+                allResults[strategy.id] = data;
+            } else {
+                console.error(`Ошибка для стратегии ${strategy.id}:`, data.error);
+            }
+            
+            // Когда все запросы завершены
+            if (completedRequests === STRATEGIES.length) {
+                document.getElementById('optimizeBtn').disabled = false;
+                document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
+                
+                if (Object.keys(allResults).length > 0) {
+                    optimizationResults = allResults;
+                    displayResults(allResults);
+                    document.getElementById('printBtn').style.display = 'block';
+                } else {
+                    alert('Не удалось выполнить оптимизацию ни по одной из стратегий');
+                }
+            }
+        })
+        .catch(error => {
+            completedRequests++;
+            console.error(`Ошибка для стратегии ${strategy.id}:`, error);
+            
+            if (completedRequests === STRATEGIES.length) {
+                document.getElementById('optimizeBtn').disabled = false;
+                document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
+                alert('Ошибка соединения с сервером');
+            }
+        });
     });
 }
 
 // ===== ОТОБРАЖЕНИЕ РЕЗУЛЬТАТОВ =====
 
-function displayResults(result) {
+function displayResults(allResults) {
     const container = document.getElementById('resultsContainer');
     
+    // Определить лучший результат
+    let bestStrategy = null;
+    let bestCost = Infinity;
+    Object.keys(allResults).forEach(strategyId => {
+        if (allResults[strategyId].total_cost < bestCost) {
+            bestCost = allResults[strategyId].total_cost;
+            bestStrategy = strategyId;
+        }
+    });
+    
     let html = `
-        <div class="print-header" style="display:none;">
-            <h3>Оптимизация раскроя листового материала</h3>
-            <p>Дата: ${new Date().toLocaleDateString('ru-RU')}</p>
-        </div>
-        
-        <div class="row">
-            <div class="col-md-6">
-                <div class="stats-card">
-                    <h6>Листов требуется</h6>
-                    <div class="display-value">${result.sheets_needed}</div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="stats-card">
-                    <h6>Стоимость материала</h6>
-                    <div class="display-value">${(result.total_cost).toFixed(2)} руб.</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row mt-3">
-            <div class="col-md-6">
-                <div class="stats-card">
-                    <h6>Использовано материала</h6>
-                    <div class="display-value">${(result.material_used).toFixed(1)}%</div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="stats-card">
-                    <h6>Отходы</h6>
-                    <div class="display-value">${(result.waste).toFixed(1)}%</div>
-                </div>
-            </div>
-        </div>
-        
         <div class="card mt-4">
-            <div class="card-header bg-warning">
-                <h5 class="mb-0">📋 Схемы раскроя</h5>
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">📊 Результаты оптимизации</h5>
             </div>
             <div class="card-body">
+                <div class="alert alert-info">
+                    <strong>Рекомендуется:</strong> Стратегия "<strong>${STRATEGIES.find(s => s.id === bestStrategy).name}</strong>" с минимальной стоимостью ${bestCost.toFixed(2)} руб.
+                </div>
+                
+                <ul class="nav nav-tabs" role="tablist">
     `;
     
-    result.patterns.forEach((pattern, index) => {
-        html += `
-            <div class="pattern-item">
-                <h6>Схема ${index + 1}</h6>
-                <p class="mb-2">
-                    Деталей: <strong>${pattern.details.length}</strong> | 
-                    Использовано: <strong>${(pattern.used_area / (result.sheet_length * result.sheet_width) * 100).toFixed(1)}%</strong>
-                </p>
-        `;
-        
-        pattern.details.forEach(detail => {
-            html += `<span class="badge bg-primary me-2">${detail.length}×${detail.width}</span>`;
-        });
-        
-        // html += `
-        //         <canvas id="canvas${index}" width="600" height="450" style="border: 1px solid #ddd; margin-top: 1rem; display: block; width: 100%; height: auto;"></canvas>
-        //     </div>
-        // `;
-        html += `
-        <div class="canvas-container">        
-        <canvas class="myCanvas" id="canvas${index}" style="border: 1px solid #ddd; margin-top: 1rem; "></canvas>
-        </div>
-            </div>
-        `;
+    STRATEGIES.forEach((strategy, index) => {
+        if (allResults[strategy.id]) {
+            const isActive = strategy.id === bestStrategy ? 'active' : '';
+            html += `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link ${isActive}" id="tab-${strategy.id}" data-bs-toggle="tab" 
+                        data-bs-target="#content-${strategy.id}" type="button" role="tab">
+                        ${strategy.name} ${strategy.id === bestStrategy ? '✓' : ''}
+                    </button>
+                </li>
+            `;
+        }
     });
     
     html += `
+                </ul>
+                
+                <div class="tab-content mt-3">
+    `;
+    
+    STRATEGIES.forEach(strategy => {
+        if (allResults[strategy.id]) {
+            const result = allResults[strategy.id];
+            const isActive = strategy.id === bestStrategy ? 'active' : '';
+            
+            html += `
+                <div class="tab-pane fade ${isActive}" id="content-${strategy.id}" role="tabpanel">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h6>Листов используется</h6>
+                                <div class="display-value">${result.sheets_used}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h6>Стоимость материала</h6>
+                                <div class="display-value">${(result.total_cost).toFixed(2)} руб.</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h6>Использовано</h6>
+                                <div class="display-value">${(result.material_used).toFixed(1)}%</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h6>Отходы</h6>
+                                <div class="display-value">${(result.waste).toFixed(1)}%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card mt-3">
+                        <div class="card-header bg-warning">
+                            <h5 class="mb-0">📋 Схемы раскроя</h5>
+                        </div>
+                        <div class="card-body">
+            `;
+            
+            result.patterns.forEach((pattern, index) => {
+                html += `
+                    <div class="pattern-item">
+                        <h6>Схема ${index + 1} - Лист ${pattern.sheet_index + 1} (${pattern.sheet_length}×${pattern.sheet_width} мм)</h6>
+                        <p class="mb-2">
+                            Деталей: <strong>${pattern.details.length}</strong> | 
+                            Использовано: <strong>${(pattern.used_area / (pattern.sheet_length * pattern.sheet_width) * 100).toFixed(1)}%</strong>
+                        </p>
+                `;
+                
+                pattern.details.forEach(detail => {
+                    html += `<span class="badge bg-primary me-2">${detail.length}×${detail.width}</span>`;
+                });
+                
+                html += `
+                    <div class="canvas-container">        
+                    <canvas class="myCanvas" id="canvas-${strategy.id}-${index}" style="border: 1px solid #ddd; margin-top: 1rem; "></canvas>
+                    </div>
+                        </div>
+                `;
+            });
+            
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+    
+    html += `
+                </div>
             </div>
         </div>
     `;
     
     container.innerHTML = html;
     
-    // Отрисовать схемы раскроя на canvas
-    result.patterns.forEach((pattern, index) => {
-        drawPattern(index, pattern, result.sheet_length, result.sheet_width, result.margin);
+    // Отрисовать схемы раскроя на canvas для каждой стратегии
+    STRATEGIES.forEach(strategy => {
+        if (allResults[strategy.id]) {
+            const result = allResults[strategy.id];
+            result.patterns.forEach((pattern, index) => {
+                const canvasId = `canvas-${strategy.id}-${index}`;
+                setTimeout(() => {
+                    drawPattern(canvasId, pattern);
+                }, 100);
+            });
+        }
     });
 }
 
 // ===== ОТРИСОВКА CANVAS =====
 
-function drawPattern(index, pattern, sheetLength, sheetWidth, margin) {
-    const canvas = document.getElementById(`canvas${index}`);
+function drawPattern(canvasId, pattern) {
+    const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     
-// Логический размер для рисования
-canvas.width = 1600; 
-canvas.height = 1200;
-
-
+    // Логический размер для рисования
+    canvas.width = 1600; 
+    canvas.height = 1200;
+    
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
-    const scale = Math.min(rect.width / sheetLength, rect.height / sheetWidth) * 0.9;
+    const scale = Math.min(rect.width / pattern.sheet_length, rect.height / pattern.sheet_width) * 0.9;
     const offsetX = 20;
     const offsetY = 20;
     
@@ -355,17 +477,17 @@ canvas.height = 1200;
     
     // Отрисовать фон листа
     ctx.fillStyle = '#e8f4f8';
-    ctx.fillRect(offsetX, offsetY, sheetLength * scale, sheetWidth * scale);
+    ctx.fillRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
     
     // Отрисовать границу листа
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 2;
-    ctx.strokeRect(offsetX, offsetY, sheetLength * scale, sheetWidth * scale);
+    ctx.strokeRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
     
     // Размеры листа
     ctx.fillStyle = '#666';
     ctx.font = '12px Arial';
-    ctx.fillText(`${sheetLength}×${sheetWidth} мм`, offsetX + 5, offsetY - 5);
+    ctx.fillText(`${pattern.sheet_length}×${pattern.sheet_width} мм`, offsetX + 5, offsetY - 5);
     
     // Отрисовать детали
     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe', '#fd79a8', '#fdcb6e'];
@@ -402,13 +524,25 @@ canvas.height = 1200;
 // ===== ПЕЧАТЬ =====
 
 function printLayout() {
-    if (!optimizationResult) {
+    if (!optimizationResults) {
         alert('Сначала выполните оптимизацию!');
         return;
     }
     
+    // Печатать результаты лучшей стратегии
+    let bestStrategy = null;
+    let bestCost = Infinity;
+    Object.keys(optimizationResults).forEach(strategyId => {
+        if (optimizationResults[strategyId].total_cost < bestCost) {
+            bestCost = optimizationResults[strategyId].total_cost;
+            bestStrategy = strategyId;
+        }
+    });
+    
+    const result = optimizationResults[bestStrategy];
+    const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
+    
     const printWindow = window.open('', '_blank');
-    const result = optimizationResult;
     
     let html = `
     <!DOCTYPE html>
@@ -501,13 +635,14 @@ function printLayout() {
     <body>
         <div class="header">
             <h1>Оптимизация раскроя листового материала</h1>
+            <p>Стратегия: ${strategyName}</p>
             <p>Дата создания: ${new Date().toLocaleDateString('ru-RU')} ${new Date().toLocaleTimeString('ru-RU')}</p>
         </div>
         
         <div class="stats">
             <div class="stat-box">
-                <div class="stat-label">Листов требуется</div>
-                <div class="stat-value">${result.sheets_needed}</div>
+                <div class="stat-label">Листов используется</div>
+                <div class="stat-value">${result.sheets_used}</div>
             </div>
             <div class="stat-box">
                 <div class="stat-label">Стоимость материала</div>
@@ -527,11 +662,11 @@ function printLayout() {
     result.patterns.forEach((pattern, index) => {
         html += `
             <div class="pattern">
-                <h3>Схема раскроя ${index + 1}</h3>
+                <h3>Схема раскроя ${index + 1} - Лист ${pattern.sheet_index + 1}</h3>
                 <div class="pattern-info">
-                    Размер листа: ${result.sheet_length} × ${result.sheet_width} мм | 
+                    Размер листа: ${pattern.sheet_length} × ${pattern.sheet_width} мм | 
                     Деталей: ${pattern.details.length} | 
-                    Использовано: ${(pattern.used_area / (result.sheet_length * result.sheet_width) * 100).toFixed(1)}%
+                    Использовано: ${(pattern.used_area / (pattern.sheet_length * pattern.sheet_width) * 100).toFixed(1)}%
                 </div>
                 <canvas id="printCanvas${index}" width="800" height="600"></canvas>
             </div>
@@ -553,7 +688,7 @@ function printLayout() {
     printWindow.onload = function() {
         result.patterns.forEach((pattern, index) => {
             const canvas = printWindow.document.getElementById(`printCanvas${index}`);
-            drawPatternForPrint(canvas, pattern, result.sheet_length, result.sheet_width);
+            drawPatternForPrint(canvas, pattern);
         });
         
         setTimeout(() => {
@@ -562,25 +697,25 @@ function printLayout() {
     };
 }
 
-function drawPatternForPrint(canvas, pattern, sheetLength, sheetWidth) {
+function drawPatternForPrint(canvas, pattern) {
     const ctx = canvas.getContext('2d');
-    const scale = Math.min(800 / sheetLength, 600 / sheetWidth) * 0.9;
+    const scale = Math.min(800 / pattern.sheet_length, 600 / pattern.sheet_width) * 0.9;
     const offsetX = 20;
     const offsetY = 20;
     
     // Отрисовать фон листа
     ctx.fillStyle = '#f5f5f5';
-    ctx.fillRect(offsetX, offsetY, sheetLength * scale, sheetWidth * scale);
+    ctx.fillRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
     
     // Отрисовать границу листа
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
-    ctx.strokeRect(offsetX, offsetY, sheetLength * scale, sheetWidth * scale);
+    ctx.strokeRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
     
     // Размеры листа
     ctx.fillStyle = '#000';
     ctx.font = 'bold 14px Arial';
-    ctx.fillText(`${sheetLength}×${sheetWidth} мм`, offsetX + 10, offsetY - 10);
+    ctx.fillText(`${pattern.sheet_length}×${pattern.sheet_width} мм`, offsetX + 10, offsetY - 10);
     
     // Отрисовать детали
     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe'];

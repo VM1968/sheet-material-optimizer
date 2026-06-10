@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadExampleData();
 });
 
+
 // ===== УПРАВЛЕНИЕ ЛИСТАМИ =====
 
 function addSheet() {
@@ -84,15 +85,19 @@ function renderSheets() {
             </div>
             <div class="mb-2">
                 <small class="form-text">
+                    <label class="form-label">Длина листа (мм)</label>
                     <input type="number" class="form-control form-control-sm mb-1" 
                         placeholder="Длина" value="${sheet.length}"
                         onchange="updateSheet(${sheet.id}, 'length', parseInt(this.value))">
+                    <label class="form-label">Ширина листа (мм)</label>
                     <input type="number" class="form-control form-control-sm mb-1" 
                         placeholder="Ширина" value="${sheet.width}"
                         onchange="updateSheet(${sheet.id}, 'width', parseInt(this.value))">
+                    <label class="form-label">Стоимость листа (руб.)</label>
                     <input type="number" class="form-control form-control-sm mb-1" 
                         placeholder="Стоимость" value="${sheet.cost}" step="0.01"
                         onchange="updateSheet(${sheet.id}, 'cost', parseFloat(this.value))">
+                    <label class="form-label">Припуск при резке (мм)</label>
                     <input type="number" class="form-control form-control-sm" 
                         placeholder="Припуск" value="${sheet.margin}"
                         onchange="updateSheet(${sheet.id}, 'margin', parseInt(this.value))">
@@ -171,7 +176,7 @@ function updateDetailsTable() {
     
     details.forEach(detail => {
         const row = document.createElement('tr');
-        const area = detail.length * detail.width;
+        const area = detail.length * detail.width*detail.quantity;
         const rotationLabel = detail.rotation === 'free' ? 'Свобод.' : 'Фиксир.';
         row.innerHTML = `
             <td>${detail.length}</td>
@@ -302,8 +307,14 @@ function displayResults(result) {
             html += `<span class="badge bg-primary me-2">${detail.length}×${detail.width}</span>`;
         });
         
+        // html += `
+        //         <canvas id="canvas${index}" width="600" height="450" style="border: 1px solid #ddd; margin-top: 1rem; display: block; width: 100%; height: auto;"></canvas>
+        //     </div>
+        // `;
         html += `
-                <canvas id="canvas${index}" width="600" height="450" style="border: 1px solid #ddd; margin-top: 1rem; display: block; width: 100%; height: auto;"></canvas>
+        <div class="canvas-container">        
+        <canvas class="myCanvas" id="canvas${index}" style="border: 1px solid #ddd; margin-top: 1rem; "></canvas>
+        </div>
             </div>
         `;
     });
@@ -327,6 +338,11 @@ function drawPattern(index, pattern, sheetLength, sheetWidth, margin) {
     const canvas = document.getElementById(`canvas${index}`);
     if (!canvas) return;
     
+// Логический размер для рисования
+canvas.width = 1600; 
+canvas.height = 1200;
+
+
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const scale = Math.min(rect.width / sheetLength, rect.height / sheetWidth) * 0.9;

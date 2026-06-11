@@ -24,16 +24,16 @@ const STRATEGIES = [
 ];
 
 // Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('addSheetBtn').addEventListener('click', addSheet);
     document.getElementById('addDetailBtn').addEventListener('click', addOrUpdateDetail);
     document.getElementById('optimizeBtn').addEventListener('click', optimizeLayout);
     document.getElementById('printBtn').addEventListener('click', printLayout);
     document.getElementById('presetsBtn').addEventListener('click', loadPresetsModal);
-    
+
     // Добавить лист по умолчанию
     addSheet();
-    
+
     // Загрузить пример данных для демонстрации
     loadExampleData();
 });
@@ -50,7 +50,7 @@ function addSheet() {
         cost: 1000,
         margin: 2
     };
-    
+
     sheets.push(sheet);
     currentSheetIndex = sheets.length - 1;
     renderSheets();
@@ -81,7 +81,7 @@ function updateSheet(id, field, value) {
 function renderSheets() {
     const container = document.getElementById('sheetsContainer');
     container.innerHTML = '';
-    
+
     sheets.forEach((sheet, index) => {
         const isActive = index === currentSheetIndex;
         const div = document.createElement('div');
@@ -119,7 +119,7 @@ function renderSheets() {
 function loadPresetsModal() {
     const container = document.getElementById('presetsContainer');
     container.innerHTML = '';
-    
+
     SHEET_PRESETS.forEach(preset => {
         const div = document.createElement('div');
         div.className = 'mb-2';
@@ -151,12 +151,12 @@ function addOrUpdateDetail() {
     const width = parseInt(document.getElementById('detailWidth').value);
     const quantity = parseInt(document.getElementById('detailQuantity').value);
     const rotation = document.getElementById('detailRotation').value;
-    
+
     if (!length || !width || !quantity) {
         alert('Заполните все поля!');
         return;
     }
-    
+
     if (editingDetailId !== null) {
         // Обновить существующую деталь
         const detail = details.find(d => d.id === editingDetailId);
@@ -179,9 +179,9 @@ function addOrUpdateDetail() {
         };
         details.push(detail);
     }
-    
+
     updateDetailsTable();
-    
+
     // Очистить форму
     document.getElementById('detailForm').reset();
     document.getElementById('detailRotation').value = 'free';
@@ -214,7 +214,7 @@ function editDetail(id) {
 function updateDetailsTable() {
     const tbody = document.getElementById('detailsTableBody');
     tbody.innerHTML = '';
-    
+
     details.forEach(detail => {
         const row = document.createElement('tr');
         const area = detail.length * detail.width * detail.quantity;
@@ -245,26 +245,26 @@ function optimizeLayout() {
         alert('Добавьте листы!');
         return;
     }
-    
+
     if (details.length === 0) {
         alert('Добавьте детали для раскроя!');
         return;
     }
-    
+
     document.getElementById('optimizeBtn').disabled = true;
     document.getElementById('optimizeBtn').innerHTML = '⏳ Обработка...';
-    
+
     // Отправить запросы для всех стратегий
     const sheetsData = sheets.map(sheet => ({
         length: sheet.length,
         width: sheet.width,
         cost: sheet.cost
     }));
-    
+
     const margin = sheets[0].margin;
     let completedRequests = 0;
     let allResults = {};
-    
+
     STRATEGIES.forEach(strategy => {
         const formData = new FormData();
         formData.append('action', 'optimize');
@@ -272,45 +272,45 @@ function optimizeLayout() {
         formData.append('margin', margin);
         formData.append('details', JSON.stringify(details));
         formData.append('strategy', strategy.id);
-        
+
         fetch('api.php', {
             method: 'POST',
             body: formData
         })
-        .then(response => response.json())
-        .then(data => {
-            completedRequests++;
-            
-            if (data.success) {
-                allResults[strategy.id] = data;
-            } else {
-                console.error(`Ошибка для стратегии ${strategy.id}:`, data.error);
-            }
-            
-            // Когда все запросы завершены
-            if (completedRequests === STRATEGIES.length) {
-                document.getElementById('optimizeBtn').disabled = false;
-                document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
-                
-                if (Object.keys(allResults).length > 0) {
-                    optimizationResults = allResults;
-                    displayResults(allResults);
-                    document.getElementById('printBtn').style.display = 'block';
+            .then(response => response.json())
+            .then(data => {
+                completedRequests++;
+
+                if (data.success) {
+                    allResults[strategy.id] = data;
                 } else {
-                    alert('Не удалось выполнить оптимизацию ни по одной из стратегий');
+                    console.error(`Ошибка для стратегии ${strategy.id}:`, data.error);
                 }
-            }
-        })
-        .catch(error => {
-            completedRequests++;
-            console.error(`Ошибка для стратегии ${strategy.id}:`, error);
-            
-            if (completedRequests === STRATEGIES.length) {
-                document.getElementById('optimizeBtn').disabled = false;
-                document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
-                alert('Ошибка соединения с сервером');
-            }
-        });
+
+                // Когда все запросы завершены
+                if (completedRequests === STRATEGIES.length) {
+                    document.getElementById('optimizeBtn').disabled = false;
+                    document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
+
+                    if (Object.keys(allResults).length > 0) {
+                        optimizationResults = allResults;
+                        displayResults(allResults);
+                        document.getElementById('printBtn').style.display = 'block';
+                    } else {
+                        alert('Не удалось выполнить оптимизацию ни по одной из стратегий');
+                    }
+                }
+            })
+            .catch(error => {
+                completedRequests++;
+                console.error(`Ошибка для стратегии ${strategy.id}:`, error);
+
+                if (completedRequests === STRATEGIES.length) {
+                    document.getElementById('optimizeBtn').disabled = false;
+                    document.getElementById('optimizeBtn').innerHTML = '🚀 Оптимизировать раскрой';
+                    alert('Ошибка соединения с сервером');
+                }
+            });
     });
 }
 
@@ -318,7 +318,7 @@ function optimizeLayout() {
 
 function displayResults(allResults) {
     const container = document.getElementById('resultsContainer');
-    
+
     // Определить лучший результат
     let bestStrategy = null;
     let bestCost = Infinity;
@@ -328,7 +328,7 @@ function displayResults(allResults) {
             bestStrategy = strategyId;
         }
     });
-    
+
     let html = `
         <div class="card mt-4">
             <div class="card-header bg-primary text-white">
@@ -341,7 +341,7 @@ function displayResults(allResults) {
                 
                 <ul class="nav nav-tabs" role="tablist">
     `;
-    
+
     STRATEGIES.forEach((strategy, index) => {
         if (allResults[strategy.id]) {
             const isActive = strategy.id === bestStrategy ? 'active' : '';
@@ -355,18 +355,18 @@ function displayResults(allResults) {
             `;
         }
     });
-    
+
     html += `
                 </ul>
                 
                 <div class="tab-content mt-3">
     `;
-    
+
     STRATEGIES.forEach(strategy => {
         if (allResults[strategy.id]) {
             const result = allResults[strategy.id];
-            const isActive = strategy.id === bestStrategy ? 'active' : '';
-            
+            const isActive = strategy.id === bestStrategy ? 'show active' : '';
+
             html += `
                 <div class="tab-pane fade ${isActive}" id="content-${strategy.id}" role="tabpanel">
                     <div class="row">
@@ -402,7 +402,7 @@ function displayResults(allResults) {
                         </div>
                         <div class="card-body">
             `;
-            
+
             result.patterns.forEach((pattern, index) => {
                 html += `
                     <div class="pattern-item">
@@ -412,11 +412,11 @@ function displayResults(allResults) {
                             Использовано: <strong>${(pattern.used_area / (pattern.sheet_length * pattern.sheet_width) * 100).toFixed(1)}%</strong>
                         </p>
                 `;
-                
+
                 pattern.details.forEach(detail => {
                     html += `<span class="badge bg-primary me-2">${detail.length}×${detail.width}</span>`;
                 });
-                
+
                 html += `
                     <div class="canvas-container">        
                     <canvas class="myCanvas" id="canvas-${strategy.id}-${index}" style="border: 1px solid #ddd; margin-top: 1rem; "></canvas>
@@ -424,7 +424,7 @@ function displayResults(allResults) {
                         </div>
                 `;
             });
-            
+
             html += `
                         </div>
                     </div>
@@ -432,27 +432,39 @@ function displayResults(allResults) {
             `;
         }
     });
-    
+
     html += `
                 </div>
             </div>
         </div>
     `;
-    
+
     container.innerHTML = html;
-    
-    // Отрисовать схемы раскроя на canvas для каждой стратегии
+
+    // // Отрисовать схемы раскроя на canvas для каждой стратегии
+    // STRATEGIES.forEach(strategy => {
+    //     if (allResults[strategy.id]) {
+    //         const result = allResults[strategy.id];
+    //         result.patterns.forEach((pattern, index) => {
+    //             const canvasId = `canvas-${strategy.id}-${index}`;
+    //             setTimeout(() => {
+    //                 drawPattern(canvasId, pattern);
+    //             }, 100);
+    //         });
+    //     }
+    // });
+    // Синхронная отрисовка — элементы уже имеют правильный размер в DOM
     STRATEGIES.forEach(strategy => {
         if (allResults[strategy.id]) {
             const result = allResults[strategy.id];
             result.patterns.forEach((pattern, index) => {
                 const canvasId = `canvas-${strategy.id}-${index}`;
-                setTimeout(() => {
-                    drawPattern(canvasId, pattern);
-                }, 100);
+                drawPattern(canvasId, pattern);
             });
         }
     });
+
+
 }
 
 // ===== ОТРИСОВКА CANVAS =====
@@ -460,59 +472,58 @@ function displayResults(allResults) {
 function drawPattern(canvasId, pattern) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
-    
-    // Логический размер для рисования
-    canvas.width = 1600; 
-    canvas.height = 1200;
-    
+
+    // Внутренняя система координат canvas теперь СТРОГО в миллиметрах
+    canvas.width = pattern.sheet_length;
+    canvas.height = pattern.sheet_width;
+
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const scale = Math.min(rect.width / pattern.sheet_length, rect.height / pattern.sheet_width) * 0.9;
-    const offsetX = 20;
-    const offsetY = 20;
-    
-    // Очистить canvas
+
+    // Очистить canvas (заливаем весь внутренний размер листа)
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Отрисовать фон листа
+
+    // Отрисовать фон листа (координаты 0, 0, так как холст равен листу)
     ctx.fillStyle = '#e8f4f8';
-    ctx.fillRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
-    
+    ctx.fillRect(0, 0, pattern.sheet_length, pattern.sheet_width);
+
     // Отрисовать границу листа
     ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
-    
-    // Размеры листа
-    ctx.fillStyle = '#666';
-    ctx.font = '12px Arial';
-    ctx.fillText(`${pattern.sheet_length}×${pattern.sheet_width} мм`, offsetX + 5, offsetY - 5);
-    
+    // Толщина линии в мм. Если лист большой (например 2500мм), 
+    // сделайте линию толще (например, 5 или 10), чтобы её было видно на экране.
+    ctx.lineWidth = 4; 
+    ctx.strokeRect(0, 0, pattern.sheet_length, pattern.sheet_width);
+
     // Отрисовать детали
     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe', '#fd79a8', '#fdcb6e'];
-    
+
     pattern.details.forEach((detail, i) => {
-        const x = offsetX + detail.x * scale;
-        const y = offsetY + detail.y * scale;
-        const w = detail.length * scale;
-        const h = detail.width * scale;
-        
+        // Координаты и размеры берутся НАПРЯМУЮ в мм, без scale и offset!
+        const x = detail.x;
+        const y = detail.y;
+        const w = detail.length;
+        const h = detail.width;
+
         // Отрисовать деталь
         ctx.fillStyle = colors[i % colors.length];
         ctx.fillRect(x, y, w, h);
-        
+
         // Граница детали
         ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2; // толщина в мм
         ctx.strokeRect(x, y, w, h);
-        
+
         // Текст размеров
         ctx.fillStyle = '#000';
-        ctx.font = 'bold 11px Arial';
+        
+        // Размер шрифта подбирайте в мм. 
+        // Если детали мелкие (например 100мм), 14px (мм) будет много.
+        // Оптимально взять процент от размера детали или фиксированные ~20-30мм для читаемости.
+        ctx.font = `bold ${Math.min(w, h, 30)}px Arial`; 
+        
         const textX = x + w / 2;
         const textY = y + h / 2;
-        
+
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -528,22 +539,29 @@ function printLayout() {
         alert('Сначала выполните оптимизацию!');
         return;
     }
-    
+
     // Печатать результаты лучшей стратегии
-    let bestStrategy = null;
-    let bestCost = Infinity;
-    Object.keys(optimizationResults).forEach(strategyId => {
-        if (optimizationResults[strategyId].total_cost < bestCost) {
-            bestCost = optimizationResults[strategyId].total_cost;
-            bestStrategy = strategyId;
-        }
-    });
+    // let bestStrategy = null;
+    // let bestCost = Infinity;
+    // Object.keys(optimizationResults).forEach(strategyId => {
+    //     if (optimizationResults[strategyId].total_cost < bestCost) {
+    //         bestCost = optimizationResults[strategyId].total_cost;
+    //         bestStrategy = strategyId;
+    //     }
+    // });
+
+    // const result = optimizationResults[bestStrategy];
+    // const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
     
+    let bestStrategy=document.querySelector('.active[role="tabpanel"]').id.replace('content-', '');
     const result = optimizationResults[bestStrategy];
-    const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
-    
+    //const strategyName=document.querySelector('.active[role="tabpanel"]').id.replace('content-', '');
+const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
+
+
+
     const printWindow = window.open('', '_blank');
-    
+
     let html = `
     <!DOCTYPE html>
     <html lang="ru">
@@ -658,7 +676,7 @@ function printLayout() {
             </div>
         </div>
     `;
-    
+
     result.patterns.forEach((pattern, index) => {
         html += `
             <div class="pattern">
@@ -672,7 +690,7 @@ function printLayout() {
             </div>
         `;
     });
-    
+
     html += `
         <div class="footer">
             <p>Выполнено: ${new Date().toLocaleString('ru-RU')}</p>
@@ -680,17 +698,17 @@ function printLayout() {
     </body>
     </html>
     `;
-    
+
     printWindow.document.write(html);
     printWindow.document.close();
-    
+
     // Отрисовать canvas после загрузки
-    printWindow.onload = function() {
+    printWindow.onload = function () {
         result.patterns.forEach((pattern, index) => {
             const canvas = printWindow.document.getElementById(`printCanvas${index}`);
             drawPatternForPrint(canvas, pattern);
         });
-        
+
         setTimeout(() => {
             printWindow.print();
         }, 500);
@@ -702,45 +720,45 @@ function drawPatternForPrint(canvas, pattern) {
     const scale = Math.min(800 / pattern.sheet_length, 600 / pattern.sheet_width) * 0.9;
     const offsetX = 20;
     const offsetY = 20;
-    
+
     // Отрисовать фон листа
     ctx.fillStyle = '#f5f5f5';
     ctx.fillRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
-    
+
     // Отрисовать границу листа
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.strokeRect(offsetX, offsetY, pattern.sheet_length * scale, pattern.sheet_width * scale);
-    
+
     // Размеры листа
     ctx.fillStyle = '#000';
     ctx.font = 'bold 14px Arial';
     ctx.fillText(`${pattern.sheet_length}×${pattern.sheet_width} мм`, offsetX + 10, offsetY - 10);
-    
+
     // Отрисовать детали
     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe'];
-    
+
     pattern.details.forEach((detail, i) => {
         const x = offsetX + detail.x * scale;
         const y = offsetY + detail.y * scale;
         const w = detail.length * scale;
         const h = detail.width * scale;
-        
+
         // Отрисовать деталь
         ctx.fillStyle = colors[i % colors.length];
         ctx.fillRect(x, y, w, h);
-        
+
         // Граница детали
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
         ctx.strokeRect(x, y, w, h);
-        
+
         // Текст размеров
         ctx.fillStyle = '#000';
         ctx.font = 'bold 12px Arial';
         const textX = x + w / 2;
         const textY = y + h / 2;
-        
+
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -760,7 +778,7 @@ function loadExampleData() {
         quantity: 5,
         rotation: 'free'
     });
-    
+
     details.push({
         id: 2,
         length: 400,
@@ -768,7 +786,7 @@ function loadExampleData() {
         quantity: 3,
         rotation: 'free'
     });
-    
+
     details.push({
         id: 3,
         length: 800,
@@ -776,6 +794,6 @@ function loadExampleData() {
         quantity: 2,
         rotation: 'fixed'
     });
-    
+
     updateDetailsTable();
 }

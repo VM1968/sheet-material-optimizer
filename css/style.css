@@ -75,10 +75,10 @@ body {
 }
 
 /* Родительский блок */
-.canvas-container {
-    width: 100%; /* Задайте нужные вам размеры */
+/* .canvas-container {
+    width: 100%; 
     height: auto;
-    overflow: hidden; /* Обрезает все, что выходит за рамки */
+    overflow: hidden; 
     position: relative;
 }
 
@@ -86,8 +86,22 @@ canvas {
     display: block;
     width: 100%;
     height: 100%;
+} */
+.canvas-container {
+  width: 100%;
+  overflow-x: auto; /* Если лист 2500мм не влезает в экран, появится аккуратная прокрутка */
+  position: relative;
+  margin-bottom: 25px;
+  background: #f5f5f5;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
+canvas {
+  display: block;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1); /* Красивая тень для листа */
+  /* МЫ УБРАЛИ width: 100% и height: 100%, теперь размером управляет JS через scaleMM */
+}
 
 .stats-card {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

@@ -47,8 +47,8 @@ function addSheet() {
         id: sheetId,
         length: 2500,
         width: 1250,
-        cost: 1000,
-        margin: 2
+        cost: 1000
+        //,margin: 2
     };
 
     sheets.push(sheet);
@@ -105,10 +105,10 @@ function renderSheets() {
                     <input type="number" class="form-control form-control-sm mb-1" 
                         placeholder="Стоимость" value="${sheet.cost}" step="0.01"
                         onchange="updateSheet(${sheet.id}, 'cost', parseFloat(this.value))">
-                    <label class="form-label">Припуск при резке (мм)</label>
-                    <input type="number" class="form-control form-control-sm" 
-                        placeholder="Припуск" value="${sheet.margin}"
-                        onchange="updateSheet(${sheet.id}, 'margin', parseInt(this.value))">
+                    <!-- <label class="form-label">Припуск при резке (мм)</label>
+                     <input type="number" class="form-control form-control-sm" 
+                         placeholder="Припуск" value="${sheet.margin}"
+                         onchange="updateSheet(${sheet.id}, 'margin', parseInt(this.value))">-->
                 </small>
             </div>
         `;
@@ -261,7 +261,7 @@ function optimizeLayout() {
         cost: sheet.cost
     }));
 
-    const margin = sheets[0].margin;
+    const margin = document.getElementById("sheet_margin").value;// sheets[0].margin;
     let completedRequests = 0;
     let allResults = {};
 
@@ -403,6 +403,22 @@ function displayResults(allResults) {
                         <div class="card-body">
             `;
 
+            // Не размещенные
+            if (result.remaining_details.length > 0) {
+                html += `
+                    <div class="pattern-item">
+                        <p class="mb-2">
+                            Не размещено деталей: <strong>${result.remaining_details.length}</strong> 
+                        </p>
+                `;
+                result.remaining_details.forEach((detail, index) => {
+                    html += `<span class="badge me-2" style="background-color: ${colors[detail['detail_num'] % colors.length]};">${detail.length}×${detail.width}</span>`;
+                });
+                html += `
+                        </div>
+                `;
+            }
+
             result.patterns.forEach((pattern, index) => {
                 html += `
                     <div class="pattern-item">
@@ -414,7 +430,7 @@ function displayResults(allResults) {
                 `;
 
                 pattern.details.forEach(detail => {
-                    html += `<span class="badge bg-primary me-2">${detail.length}×${detail.width}</span>`;
+                    html += `<span class="badge me-2" style="background-color: ${colors[detail['detail_num'] % colors.length]};">${detail.length}×${detail.width}</span>`;
                 });
 
                 html += `
@@ -460,15 +476,121 @@ function displayResults(allResults) {
             result.patterns.forEach((pattern, index) => {
                 const canvasId = `canvas-${strategy.id}-${index}`;
                 drawPattern(canvasId, pattern);
+
+                //сделать возможность перетаскивания
+                let canvas = document.getElementById(canvasId);
+                // console.log(canvas);
+                canvas.addEventListener('mousedown', (e) => {
+                    const mouse = getMousePos(canvas, e);
+                    // console.log("mouse: " + JSON.stringify(mouse));
+                    for (let i = pattern.details.length - 1; i >= 0; i--) {
+                        const r = pattern.details[i];
+                        // console.log(r);
+                        if (mouse.x >= r.x && mouse.x <= r.x + r.length &&
+                            mouse.y >= r.y && mouse.y <= r.y + r.width) {
+                            selectedRect = r;
+                            // console.log("selected: " + JSON.stringify(selectedRect));
+                            // console.log(pattern);
+                            // Запоминаем начальную точку на случай возврата
+                            startX = r.x;
+                            startY = r.y;
+
+                            offsetX = mouse.x - r.x;
+                            offsetY = mouse.y - r.y;
+                            break;
+                        }
+                    }
+                    drawPattern(canvasId, pattern);
+                });
+
+                canvas.addEventListener('mousemove', (e) => {
+                    if (!selectedRect) return;
+                    const mouse = getMousePos(canvas, e);
+
+                    selectedRect.x = mouse.x - offsetX;
+                    selectedRect.y = mouse.y - offsetY;
+
+                    drawPattern(canvasId, pattern);
+                });
+
+                // canvas.addEventListener('mouseup', () => {
+                //     if (!selectedRect) return;
+                //     sheet = { x: 0, y: 0, width:pattern.sheet_width , height: pattern.sheet_length };
+                //     // Если после отпускания мыши позиция некорректна — возвращаем на место
+                //     // console.log(pattern.details);
+                //     if (!isPositionValid(selectedRect,sheet,pattern.details)) {
+                //     selectedRect.x = startX;
+                //     selectedRect.y = startY;
+                //     }
+
+                //     selectedRect = null;
+                //     drawPattern(canvasId, pattern);
+                // });
+
+                canvas.addEventListener('mouseup', () => {
+                    if (!selectedRect) return;
+                    sheet = { x: 0, y: 0, width: pattern.sheet_width, height: pattern.sheet_length };
+                    let margin = Number(document.getElementById("sheet_margin").value);
+                    // Ищем, с какими деталями пересекается перетаскиваемый объект
+                    rectangles = pattern.details;
+                    let overlappingRects = rectangles.filter(rect =>
+                        rect.id !== selectedRect.id && isOverlapping(selectedRect, rect)
+                    );
+
+                    if (overlappingRects.length > 0) {
+                        // Берем первое найденное пересечение (или можно перебрать все)
+                        let obstacle = overlappingRects[0];
+
+                        // Вычисляем, насколько нужно сдвинуть деталь, чтобы выровнять по краям препятствия
+                        let snapToRight = obstacle.x + obstacle.length; // Координата X правого края препятствия
+                        let snapToBottom = obstacle.y + obstacle.width; // Координата Y нижнего края препятствия
+
+                        // Считаем расстояния (насколько глубоко зашли за правый/нижний край)
+                        let distToRight = Math.abs(selectedRect.x - snapToRight);
+                        let distToBottom = Math.abs(selectedRect.y - snapToBottom);
+
+                        // Запоминаем текущую позицию перед попыткой выравнивания
+                        let targetX = selectedRect.x;
+                        let targetY = selectedRect.y;
+
+                        // Выбираем ближайший край для выравнивания
+                        if (distToRight < distToBottom) {
+                            targetX = snapToRight; // Выравниваем по правому краю
+                        } else {
+                            targetY = snapToBottom; // Выравниваем по низу
+                        }
+
+                        // Временный объект для проверки валидности новой позиции
+                        let testRect = { ...selectedRect, x: targetX, y: targetY };
+
+                        if (isPositionValid(testRect, sheet, pattern.details)) {
+                            //console.log(margin)
+                            selectedRect.x = targetX + margin;
+                            selectedRect.y = targetY + margin;
+                        } else {
+                            // Если выравнивание всё равно нарушает правила (например, вылет за лист), возвращаем в начало
+                            selectedRect.x = startX;
+                            selectedRect.y = startY;
+                        }
+                    } else if (!isInsideSheet(selectedRect, sheet)) {
+                        // Если пересечений нет, но деталь просто вылетела за границы листа
+                        selectedRect.x = startX;
+                        selectedRect.y = startY;
+                    }
+
+                    selectedRect = null;
+                    drawPattern(canvasId, pattern);
+                });
+
             });
         }
     });
 
-
 }
 
+// Отрисовать детали
+    const colors = ['#ff6b6b', '#4ecdc4', '#f9ca24','#6c5ce7','#fd79a8','#a29bfe', '#fdcb6e','#45b7d1'];
 // ===== ОТРИСОВКА CANVAS =====
-
 function drawPattern(canvasId, pattern) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
@@ -476,6 +598,22 @@ function drawPattern(canvasId, pattern) {
     // Внутренняя система координат canvas теперь СТРОГО в миллиметрах
     canvas.width = pattern.sheet_length;
     canvas.height = pattern.sheet_width;
+
+
+// 2. РАСЧЕТ ЕДИНОГО МАСШТАБА ДЛЯ ЭКРАНА (Физические пиксели)
+    // Определяем, сколько пикселей экрана занимает 1 мм.
+    // Чтобы на разных canvas детали были ОДИНАКОВЫМИ, scaleMM должен быть общим.
+    // Например, зафиксируем, что 1000 мм листа всегда равны 400 пикселям на экране.
+    // Или можно рассчитывать динамически: 
+    // const scaleMM = window.innerWidth / 3000;
+    // const scaleMM = 0.35; // 1 мм = 0.35 пикселя на экране. Подберите под свой дизайн.
+    const scaleMM = 0.45; // 1 мм = 0.35 пикселя на экране. Подберите под свой дизайн.
+
+    // 3. Устанавливаем ФИЗИЧЕСКИЙ размер canvas на экране через CSS-стили
+    // Теперь холст 2500мм займет 2500 * 0.35 = 875px на экране.
+    // А холст 1200мм займет 1200 * 0.35 = 420px. Детали на них будут РАВНЫМИ!
+    canvas.style.width = `${pattern.sheet_length * scaleMM}px`;
+    canvas.style.height = `${pattern.sheet_width * scaleMM}px`;
 
     const ctx = canvas.getContext('2d');
 
@@ -491,11 +629,10 @@ function drawPattern(canvasId, pattern) {
     ctx.strokeStyle = '#333';
     // Толщина линии в мм. Если лист большой (например 2500мм), 
     // сделайте линию толще (например, 5 или 10), чтобы её было видно на экране.
-    ctx.lineWidth = 4; 
+    ctx.lineWidth = 4;
     ctx.strokeRect(0, 0, pattern.sheet_length, pattern.sheet_width);
 
-    // Отрисовать детали
-    const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe', '#fd79a8', '#fdcb6e'];
+    
 
     pattern.details.forEach((detail, i) => {
         // Координаты и размеры берутся НАПРЯМУЮ в мм, без scale и offset!
@@ -504,8 +641,9 @@ function drawPattern(canvasId, pattern) {
         const w = detail.length;
         const h = detail.width;
 
-        // Отрисовать деталь
-        ctx.fillStyle = colors[i % colors.length];
+        // ctx.fillStyle = colors[i % colors.length];
+        // console.log(detail['detail_num']);
+        ctx.fillStyle = colors[detail['detail_num'] % colors.length];
         ctx.fillRect(x, y, w, h);
 
         // Граница детали
@@ -515,12 +653,12 @@ function drawPattern(canvasId, pattern) {
 
         // Текст размеров
         ctx.fillStyle = '#000';
-        
+
         // Размер шрифта подбирайте в мм. 
         // Если детали мелкие (например 100мм), 14px (мм) будет много.
         // Оптимально взять процент от размера детали или фиксированные ~20-30мм для читаемости.
-        ctx.font = `bold ${Math.min(w, h, 30)}px Arial`; 
-        
+        ctx.font = `bold ${Math.min(w, h, 30)}px Arial`;
+
         const textX = x + w / 2;
         const textY = y + h / 2;
 
@@ -552,11 +690,11 @@ function printLayout() {
 
     // const result = optimizationResults[bestStrategy];
     // const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
-    
-    let bestStrategy=document.querySelector('.active[role="tabpanel"]').id.replace('content-', '');
+
+    let bestStrategy = document.querySelector('.active[role="tabpanel"]').id.replace('content-', '');
     const result = optimizationResults[bestStrategy];
     //const strategyName=document.querySelector('.active[role="tabpanel"]').id.replace('content-', '');
-const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
+    const strategyName = STRATEGIES.find(s => s.id === bestStrategy).name;
 
 
 
@@ -736,7 +874,7 @@ function drawPatternForPrint(canvas, pattern) {
     ctx.fillText(`${pattern.sheet_length}×${pattern.sheet_width} мм`, offsetX + 10, offsetY - 10);
 
     // Отрисовать детали
-    const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe'];
+    // const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe'];
 
     pattern.details.forEach((detail, i) => {
         const x = offsetX + detail.x * scale;
@@ -744,9 +882,11 @@ function drawPatternForPrint(canvas, pattern) {
         const w = detail.length * scale;
         const h = detail.width * scale;
 
-        // Отрисовать деталь
-        ctx.fillStyle = colors[i % colors.length];
+        // ctx.fillStyle = colors[i % colors.length];
+        // console.log(detail['detail_num']);
+        ctx.fillStyle = colors[detail['detail_num'] % colors.length];
         ctx.fillRect(x, y, w, h);
+        
 
         // Граница детали
         ctx.strokeStyle = '#000';
@@ -768,7 +908,6 @@ function drawPatternForPrint(canvas, pattern) {
 }
 
 // ===== ПРИМЕРЫ ДАННЫХ =====
-
 function loadExampleData() {
     // Примеры деталей
     details.push({
@@ -797,3 +936,65 @@ function loadExampleData() {
 
     updateDetailsTable();
 }
+
+//== ПЕРЕТАСКИВАНИЕ ==
+
+let sheet = {};
+let selectedRect = null;
+let offsetX = 0;
+let offsetY = 0;
+
+// Переменные для хранения позиции до начала перетаскивания
+let startX = 0;
+let startY = 0;
+
+function getMousePos(canvas, e) {
+    const rect = canvas.getBoundingClientRect();
+    // 1. Получаем координаты клика относительно самого canvas на экране
+    const clientX = event.clientX - rect.left;
+    const clientY = event.clientY - rect.top;
+
+    // 2. Масштабируем под внутреннее разрешение холста
+    const canvasX = clientX * (canvas.width / rect.width);
+    const canvasY = clientY * (canvas.height / rect.height);
+
+    return { x: canvasX, y: canvasY };
+}
+// Проверка пересечения двух прямоугольников
+function isOverlapping(rect1, rect2) {
+    // console.log("selected: " + JSON.stringify(rect1));
+    // console.log("rect: " + JSON.stringify(rect2));
+    return rect1.x < rect2.x + rect2.length &&
+        rect1.x + rect1.length > rect2.x &&
+        rect1.y < rect2.y + rect2.width &&
+        rect1.y + rect1.width > rect2.y;
+}
+
+// Проверка, находится ли прямоугольник строго ВНУТРИ листа
+function isInsideSheet(rect, sheet) {
+    // console.log("selected: " + JSON.stringify(rect));
+    // console.log("selected: " + JSON.stringify(sheet));
+    return rect.x >= sheet.x &&
+        rect.x + rect.length <= sheet.x + sheet.height &&
+        rect.y >= sheet.y &&
+        rect.y + rect.width <= sheet.y + sheet.width;
+}
+
+// Комплексная проверка позиции прямоугольника
+function isPositionValid(currentRect, sheet, rectangles) {
+    // 1. Проверяем выход за границы листа
+    if (!isInsideSheet(currentRect, sheet)) return false;
+
+    // 2. Проверяем пересечение с другими деталями
+    for (let rect of rectangles) {
+        if (rect.id === currentRect.id) continue; // Пропускаем сами себя
+        if (isOverlapping(currentRect, rect)) return false;
+    }
+
+    return true;
+}
+
+//подогнать под экран
+
+
+

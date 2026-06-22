@@ -13,7 +13,7 @@ const SHEET_PRESETS = [
     { name: 'Листовой металл 2000×1000', length: 2000, width: 1000, cost: 2000 },
     { name: 'Пластик 2400×1200', length: 2400, width: 1200, cost: 600 },
     { name: 'Стекло 3000×2000', length: 3000, width: 2000, cost: 3000 },
-    { name: 'Кастрюля 1500×1500', length: 1500, width: 1500, cost: 500 }
+    { name: 'Лист 1500×1500', length: 1500, width: 1500, cost: 500 }
 ];
 
 // Стратегии оптимизации
